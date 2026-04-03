@@ -4,7 +4,7 @@ import pandas as pd
 # =========================================
 # 🎨 PAGE CONFIG
 # =========================================
-st.set_page_config(page_title="Shadowfax RTS Dashboard", layout="wide")
+st.set_page_config(page_title="Shadowfax Loss Dashboard", layout="wide")
 
 # =========================================
 # 🎨 BRANDING
@@ -49,7 +49,7 @@ untraceable_file = st.sidebar.file_uploader("Untraceable File")
 if freeze_file and manifest_file and awb_file and mapping_file:
 
     # -------------------------------
-    # 🔹 LOAD FREEZE FILE (SAFE)
+    # 🔹 LOAD FREEZE FILE
     # -------------------------------
     excel = pd.ExcelFile(freeze_file)
 
@@ -60,13 +60,13 @@ if freeze_file and manifest_file and awb_file and mapping_file:
             break
 
     if sheet is None:
-        st.error(f"❌ No valid sheet found. Available sheets: {excel.sheet_names}")
+        st.error(f"❌ No valid sheet found. Sheets: {excel.sheet_names}")
         st.stop()
 
     df = pd.read_excel(freeze_file, sheet_name=sheet)
 
     # -------------------------------
-    # 🔹 LOAD OTHER FILES
+    # 🔹 LOAD FILES
     # -------------------------------
     manifest_df = pd.read_csv(manifest_file)
     awb_df = pd.read_csv(awb_file)
@@ -80,10 +80,23 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     AWB = "dsp_awb_number"
 
     # -------------------------------
-    # 🔗 MERGE DATA
+    # 🔹 MANIFEST FIX
     # -------------------------------
-    df = df.merge(manifest_df[[AWB, "Current Location"]], on=AWB, how="left")
+    manifest_df.columns = manifest_df.columns.str.strip()
 
+    manifest_df = manifest_df.rename(columns={
+        "shipments_current_location": "Current Location"
+    })
+
+    df = df.merge(
+        manifest_df[[AWB, "Current Location"]],
+        on=AWB,
+        how="left"
+    )
+
+    # -------------------------------
+    # 🔹 AWB MERGE
+    # -------------------------------
     df = df.merge(
         awb_df[[AWB, "order_status", "attempt_number",
                 "last_status_update", "received_at_hub_time"]],
@@ -91,6 +104,9 @@ if freeze_file and manifest_file and awb_file and mapping_file:
         how="left"
     )
 
+    # -------------------------------
+    # 🔹 MAPPING
+    # -------------------------------
     df = df.merge(
         mapping_df,
         left_on="Current Location",
@@ -99,7 +115,7 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     )
 
     # -------------------------------
-    # 🧠 DEDICATED HUB LOGIC
+    # 🧠 DEDICATED HUB
     # -------------------------------
     df.loc[
         df["Current Location"].str.endswith(("_FM", "_RTS", "_FMRTS"), na=False),
@@ -132,7 +148,7 @@ if freeze_file and manifest_file and awb_file and mapping_file:
         df["Untraceable"] = False
 
     # -------------------------------
-    # 🔥 LOSS BUCKET LOGIC
+    # 🔥 LOSS BUCKET
     # -------------------------------
     df["Updated Loss Bucket"] = ""
 
@@ -177,46 +193,72 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     ] = "Lost at RTS Hub"
 
     # -------------------------------
-    # 📊 KPIs
+    # 📅 MONTH
     # -------------------------------
-    total = df["Debit Value"].sum()
+    df["Month"] = pd.to_datetime(df["last_status_update"], errors="coerce").dt.strftime("%b'%y")
 
-    dc = df[df["Updated Loss Bucket"].isin([
+    # =========================================
+    # 🎛️ FILTERS
+    # =========================================
+    st.sidebar.markdown("## 🎛️ Filters")
+
+    am_filter = st.sidebar.multiselect("AM", sorted(df["AM"].dropna().unique()))
+    sl_filter = st.sidebar.multiselect("SL", sorted(df["SL"].dropna().unique()))
+    month_filter = st.sidebar.multiselect("Month", sorted(df["Month"].dropna().unique()))
+
+    filtered_df = df.copy()
+
+    if am_filter:
+        filtered_df = filtered_df[filtered_df["AM"].isin(am_filter)]
+
+    if sl_filter:
+        filtered_df = filtered_df[filtered_df["SL"].isin(sl_filter)]
+
+    if month_filter:
+        filtered_df = filtered_df[filtered_df["Month"].isin(month_filter)]
+
+    # =========================================
+    # 📊 KPIs
+    # =========================================
+    total = filtered_df["Debit Value"].sum()
+
+    dc = filtered_df[filtered_df["Updated Loss Bucket"].isin([
         "DC - RTS Intransit",
         "DC to RTS Short",
         "RTS - PU Short"
     ])]["Debit Value"].sum()
 
-    lost = df[df["Updated Loss Bucket"] == "Lost at RTS Hub"]["Debit Value"].sum()
+    lost = filtered_df[filtered_df["Updated Loss Bucket"] == "Lost at RTS Hub"]["Debit Value"].sum()
 
     col1, col2, col3 = st.columns(3)
 
-    col1.markdown(f'<div class="kpi">Total Debit<br><b>{int(total)}</b></div>', unsafe_allow_html=True)
-    col2.markdown(f'<div class="kpi">DC to RTS<br><b>{int(dc)}</b></div>', unsafe_allow_html=True)
-    col3.markdown(f'<div class="kpi">Lost at RTS<br><b>{int(lost)}</b></div>', unsafe_allow_html=True)
+    col1.metric("💰 Total Debit", f"{int(total):,}")
+    col2.metric("🔵 DC to RTS", f"{int(dc):,}")
+    col3.metric("🟡 Lost at RTS", f"{int(lost):,}")
 
-    # -------------------------------
-    # 📅 MONTH COLUMN
-    # -------------------------------
-    df["Month"] = pd.to_datetime(df["last_status_update"], errors="coerce").dt.strftime("%b'%y")
+    # =========================================
+    # 📊 CHARTS
+    # =========================================
+    st.subheader("📊 AM Wise Loss")
+    st.bar_chart(filtered_df.groupby("AM")["Debit Value"].sum())
 
-    # -------------------------------
-    # 🏆 AM PERFORMANCE
-    # -------------------------------
-    st.subheader("🏆 AM Performance")
+    st.subheader("📈 Monthly Trend")
+    st.line_chart(filtered_df.groupby("Month")["Debit Value"].sum())
+
+    st.subheader("📍 Top Loss Hubs")
     st.dataframe(
-        df.groupby("AM")["Debit Value"]
+        filtered_df.groupby("Current Location")["Debit Value"]
         .sum()
         .sort_values(ascending=False)
         .head(10)
     )
 
-    # -------------------------------
-    # 🔵 DC TO RTS VIEW
-    # -------------------------------
+    # =========================================
+    # 🔵 DC TO RTS
+    # =========================================
     st.subheader("🔵 DC to RTS")
 
-    dc_df = df[df["Updated Loss Bucket"].isin([
+    dc_df = filtered_df[filtered_df["Updated Loss Bucket"].isin([
         "DC - RTS Intransit",
         "DC to RTS Short",
         "RTS - PU Short"
@@ -237,12 +279,12 @@ if freeze_file and manifest_file and awb_file and mapping_file:
             pivot["Total"] = pivot.sum(axis=1)
             st.dataframe(pivot)
 
-    # -------------------------------
-    # 🟡 LOST AT RTS VIEW
-    # -------------------------------
+    # =========================================
+    # 🟡 LOST AT RTS
+    # =========================================
     st.subheader("🟡 Lost at RTS")
 
-    lost_df = df[df["Updated Loss Bucket"] == "Lost at RTS Hub"]
+    lost_df = filtered_df[filtered_df["Updated Loss Bucket"] == "Lost at RTS Hub"]
 
     for am in lost_df["AM"].dropna().unique():
         with st.expander(f"📁 {am}"):
@@ -259,11 +301,11 @@ if freeze_file and manifest_file and awb_file and mapping_file:
             pivot["Total"] = pivot.sum(axis=1)
             st.dataframe(pivot)
 
-    # -------------------------------
+    # =========================================
     # 📥 DOWNLOAD
-    # -------------------------------
+    # =========================================
     st.download_button(
         "⬇️ Download Final Data",
-        df.to_csv(index=False),
+        filtered_df.to_csv(index=False),
         "final_output.csv"
     )
