@@ -4,7 +4,7 @@ import pandas as pd
 # =========================================
 # 🎨 PAGE CONFIG
 # =========================================
-st.set_page_config(page_title="Shadowfax Loss Dashboard", layout="wide")
+st.set_page_config(page_title="Shadowfax RTS Dashboard", layout="wide")
 
 # =========================================
 # 🎨 BRANDING
@@ -17,10 +17,8 @@ h1, h2, h3 {color: #0f8a6c;}
 """, unsafe_allow_html=True)
 
 col1, col2 = st.columns([1,5])
-
 with col1:
     st.image("logo.png", width=120)
-
 with col2:
     st.markdown("<h1>RTS Loss Intelligence Dashboard</h1>", unsafe_allow_html=True)
 
@@ -31,10 +29,6 @@ st.sidebar.header("📂 Upload Files")
 
 freeze_file = st.sidebar.file_uploader("Freeze File")
 manifest_file = st.sidebar.file_uploader("Manifest File")
-
-if manifest_file is not None:
-    manifest_df = pd.read_csv(manifest_file)
-    st.write("Manifest Columns:", manifest_df.columns)
 awb_file = st.sidebar.file_uploader("AWB to DSP File")
 mapping_file = st.sidebar.file_uploader("Mapping Master")
 untraceable_file = st.sidebar.file_uploader("Untraceable File")
@@ -64,14 +58,20 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     df = pd.read_excel(freeze_file, sheet_name=sheet)
 
     # -------------------------------
-    # 🔹 LOAD OTHER FILES
+    # 🔹 READ FILE FUNCTION
     # -------------------------------
-    manifest_df = pd.read_csv(manifest_file)
-    awb_df = pd.read_csv(awb_file)
-    mapping_df = pd.read_csv(mapping_file)
+    def read_file(file):
+        if file.name.endswith(".csv"):
+            return pd.read_csv(file)
+        else:
+            return pd.read_excel(file)
+
+    manifest_df = read_file(manifest_file)
+    awb_df = read_file(awb_file)
+    mapping_df = read_file(mapping_file)
 
     if untraceable_file:
-        untraceable_df = pd.read_csv(untraceable_file)
+        untraceable_df = read_file(untraceable_file)
     else:
         untraceable_df = pd.DataFrame()
 
@@ -87,9 +87,13 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     # -------------------------------
     manifest_df.columns = manifest_df.columns.str.strip()
 
-    manifest_df = manifest_df.rename(columns={
-        "shipments_current_location": "Current Location"
-    })
+    if "shipments_current_location" in manifest_df.columns:
+        manifest_df = manifest_df.rename(columns={
+            "shipments_current_location": "Current Location"
+        })
+    else:
+        st.error(f"❌ Manifest column not found: {list(manifest_df.columns)}")
+        st.stop()
 
     df = df.merge(
         manifest_df[[AWB, "Current Location"]],
@@ -112,9 +116,11 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     # -------------------------------
     mapping_df.columns = mapping_df.columns.str.strip()
 
-    mapping_df = mapping_df.rename(columns={
-        "Hub Name": "location"
-    })
+    if "Hub Name" in mapping_df.columns:
+        mapping_df = mapping_df.rename(columns={"Hub Name": "location"})
+    else:
+        st.error(f"❌ Mapping column not found: {list(mapping_df.columns)}")
+        st.stop()
 
     df = df.merge(
         mapping_df,
@@ -137,13 +143,14 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     if not untraceable_df.empty:
         untraceable_df.columns = untraceable_df.columns.str.strip()
 
-        untraceable_df = untraceable_df.rename(columns={
-            "awb_number": AWB
-        })
+        if "awb_number" in untraceable_df.columns:
+            untraceable_df = untraceable_df.rename(columns={"awb_number": AWB})
+            untraceable_df[AWB] = untraceable_df[AWB].astype(str)
 
-        untraceable_df[AWB] = untraceable_df[AWB].astype(str)
-
-        df["Untraceable"] = df[AWB].isin(untraceable_df[AWB])
+            df["Untraceable"] = df[AWB].isin(untraceable_df[AWB])
+        else:
+            st.warning("⚠️ AWB column not found in Untraceable file")
+            df["Untraceable"] = False
     else:
         df["Untraceable"] = False
 
