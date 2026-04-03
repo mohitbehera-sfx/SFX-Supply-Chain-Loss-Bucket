@@ -39,8 +39,16 @@ untraceable_file = st.sidebar.file_uploader("Untraceable File")
 if freeze_file and manifest_file and awb_file and mapping_file:
 
     excel = pd.ExcelFile(freeze_file)
-    sheet = [s for s in excel.sheet_names if s.startswith("ONLY RTS Loss - RAW")][0]
-    df = pd.read_excel(freeze_file, sheet_name=sheet)
+# safer sheet detection
+sheet = None
+for s in excel.sheet_names:
+    if "rts" in s.lower() and "raw" in s.lower():
+        sheet = s
+        break
+
+if sheet is None:
+    st.error(f"❌ No valid sheet found. Available sheets: {excel.sheet_names}")
+    st.stop()    df = pd.read_excel(freeze_file, sheet_name=sheet)
 
     manifest_df = pd.read_csv(manifest_file)
     awb_df = pd.read_csv(awb_file)
