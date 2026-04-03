@@ -104,8 +104,14 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     )
 
     # -------------------------------
-    # 🔹 MAPPING
+    # 🔹 MAPPING FIX
     # -------------------------------
+    mapping_df.columns = mapping_df.columns.str.strip()
+
+    mapping_df = mapping_df.rename(columns={
+        "Hub Name": "location"
+    })
+
     df = df.merge(
         mapping_df,
         left_on="Current Location",
@@ -144,43 +150,30 @@ if freeze_file and manifest_file and awb_file and mapping_file:
 
     df.loc[df["order_status"] == "DELIVERED", "Updated Loss Bucket"] = "Closed"
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["attempt_number"] > 0),
-        "Updated Loss Bucket"
-    ] = "Salvaged"
+    df.loc[(df["Updated Loss Bucket"] == "") & (df["attempt_number"] > 0),
+           "Updated Loss Bucket"] = "Salvaged"
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["Freeze- Loss Bucket 2"] == "Lost at RTS"),
-        "Updated Loss Bucket"
-    ] = "Lost at RTS Hub"
+    df.loc[(df["Updated Loss Bucket"] == "") &
+           (df["Freeze- Loss Bucket 2"] == "Lost at RTS"),
+           "Updated Loss Bucket"] = "Lost at RTS Hub"
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["Freeze- Loss Bucket 2"].notna()),
-        "Updated Loss Bucket"
-    ] = df["Freeze- Loss Bucket 2"]
+    df.loc[(df["Updated Loss Bucket"] == "") &
+           (df["Freeze- Loss Bucket 2"].notna()),
+           "Updated Loss Bucket"] = df["Freeze- Loss Bucket 2"]
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["order_status"] != "IN_Manifest"),
-        "Updated Loss Bucket"
-    ] = "Lost at RTS Hub"
+    df.loc[(df["Updated Loss Bucket"] == "") &
+           (df["order_status"] != "IN_Manifest"),
+           "Updated Loss Bucket"] = "Lost at RTS Hub"
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["order_status"] == "IN_Manifest") &
-        (df["Location Check"] == True),
-        "Updated Loss Bucket"
-    ] = "DC to RTS"
+    df.loc[(df["Updated Loss Bucket"] == "") &
+           (df["order_status"] == "IN_Manifest") &
+           (df["Location Check"] == True),
+           "Updated Loss Bucket"] = "DC to RTS"
 
-    df.loc[
-        (df["Updated Loss Bucket"] == "") &
-        (df["order_status"] == "IN_Manifest") &
-        (df["Location Check"] == False),
-        "Updated Loss Bucket"
-    ] = "Lost at RTS Hub"
+    df.loc[(df["Updated Loss Bucket"] == "") &
+           (df["order_status"] == "IN_Manifest") &
+           (df["Location Check"] == False),
+           "Updated Loss Bucket"] = "Lost at RTS Hub"
 
     # -------------------------------
     # 📅 MONTH
