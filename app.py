@@ -31,7 +31,10 @@ st.sidebar.header("📂 Upload Files")
 
 freeze_file = st.sidebar.file_uploader("Freeze File")
 manifest_file = st.sidebar.file_uploader("Manifest File")
-st.write("Manifest Columns:", manifest_df.columns)
+
+if manifest_file is not None:
+    manifest_df = pd.read_csv(manifest_file)
+    st.write("Manifest Columns:", manifest_df.columns)
 awb_file = st.sidebar.file_uploader("AWB to DSP File")
 mapping_file = st.sidebar.file_uploader("Mapping Master")
 untraceable_file = st.sidebar.file_uploader("Untraceable File")
