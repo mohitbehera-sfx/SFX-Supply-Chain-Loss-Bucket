@@ -28,7 +28,6 @@ with col2:
 st.sidebar.header("📂 Upload Files")
 
 freeze_file = st.sidebar.file_uploader("Freeze File")
-manifest_file = st.sidebar.file_uploader("Manifest File")
 awb_file = st.sidebar.file_uploader("AWB to DSP File")
 mapping_file = st.sidebar.file_uploader("Mapping Master")
 untraceable_file = st.sidebar.file_uploader("Untraceable File")
@@ -36,7 +35,7 @@ untraceable_file = st.sidebar.file_uploader("Untraceable File")
 # =========================================
 # 🚀 MAIN LOGIC
 # =========================================
-if freeze_file and manifest_file and awb_file and mapping_file:
+if freeze_file and awb_file and mapping_file:
 
     AWB = "dsp_awb_number"
 
@@ -66,7 +65,6 @@ if freeze_file and manifest_file and awb_file and mapping_file:
         else:
             return pd.read_excel(file)
 
-    manifest_df = read_file(manifest_file)
     awb_df = read_file(awb_file)
     mapping_df = read_file(mapping_file)
 
@@ -79,27 +77,16 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     # 🔥 FIX: AWB TYPE
     # -------------------------------
     df[AWB] = df[AWB].astype(str)
-    manifest_df[AWB] = manifest_df[AWB].astype(str)
     awb_df[AWB] = awb_df[AWB].astype(str)
 
     # -------------------------------
-    # 🔹 MANIFEST FIX
+    # 🔹 VALIDATE CURRENT LOCATION
     # -------------------------------
-    manifest_df.columns = manifest_df.columns.str.strip()
+    df.columns = df.columns.str.strip()
 
-    if "shipments_current_location" in manifest_df.columns:
-        manifest_df = manifest_df.rename(columns={
-            "shipments_current_location": "Current Location"
-        })
-    else:
-        st.error(f"❌ Manifest column not found: {list(manifest_df.columns)}")
+    if "Current Location" not in df.columns:
+        st.error("❌ 'Current Location' not found in Freeze file")
         st.stop()
-
-    df = df.merge(
-        manifest_df[[AWB, "Current Location"]],
-        on=AWB,
-        how="left"
-    )
 
     # -------------------------------
     # 🔹 AWB MERGE
@@ -119,7 +106,7 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     if "Hub Name" in mapping_df.columns:
         mapping_df = mapping_df.rename(columns={"Hub Name": "location"})
     else:
-        st.error(f"❌ Mapping column not found: {list(mapping_df.columns)}")
+        st.error(f"❌ 'Hub Name' not found in mapping file")
         st.stop()
 
     df = df.merge(
@@ -149,7 +136,6 @@ if freeze_file and manifest_file and awb_file and mapping_file:
 
             df["Untraceable"] = df[AWB].isin(untraceable_df[AWB])
         else:
-            st.warning("⚠️ AWB column not found in Untraceable file")
             df["Untraceable"] = False
     else:
         df["Untraceable"] = False
@@ -214,21 +200,13 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     # =========================================
     # 📊 KPIs
     # =========================================
-    total = filtered_df["Debit Value"].sum()
-
-    dc = filtered_df[filtered_df["Updated Loss Bucket"].isin([
-        "DC - RTS Intransit",
-        "DC to RTS Short",
-        "RTS - PU Short"
-    ])]["Debit Value"].sum()
-
-    lost = filtered_df[filtered_df["Updated Loss Bucket"] == "Lost at RTS Hub"]["Debit Value"].sum()
-
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("💰 Total Debit", f"{int(total):,}")
-    col2.metric("🔵 DC to RTS", f"{int(dc):,}")
-    col3.metric("🟡 Lost at RTS", f"{int(lost):,}")
+    col1.metric("💰 Total Debit", int(filtered_df["Debit Value"].sum()))
+    col2.metric("🔵 DC to RTS",
+                int(filtered_df[filtered_df["Updated Loss Bucket"].str.contains("DC", na=False)]["Debit Value"].sum()))
+    col3.metric("🟡 Lost at RTS",
+                int(filtered_df[filtered_df["Updated Loss Bucket"] == "Lost at RTS Hub"]["Debit Value"].sum()))
 
     # =========================================
     # 📊 CHARTS
@@ -239,42 +217,20 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     st.subheader("📈 Monthly Trend")
     st.line_chart(filtered_df.groupby("Month")["Debit Value"].sum())
 
-    st.subheader("📍 Top Loss Hubs")
-    st.dataframe(
-        filtered_df.groupby("Current Location")["Debit Value"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(10)
-    )
-
     # =========================================
-    # 🔵 DC TO RTS
+    # 🔵 DC TO RTS VIEW
     # =========================================
     st.subheader("🔵 DC to RTS")
 
-    dc_df = filtered_df[filtered_df["Updated Loss Bucket"].isin([
-        "DC - RTS Intransit",
-        "DC to RTS Short",
-        "RTS - PU Short"
-    ])]
+    dc_df = filtered_df[filtered_df["Updated Loss Bucket"].str.contains("DC", na=False)]
 
     for am in dc_df["AM"].dropna().unique():
         with st.expander(f"📁 {am}"):
             temp = dc_df[dc_df["AM"] == am]
-
-            pivot = temp.pivot_table(
-                index="Current Location",
-                columns="Month",
-                values="Debit Value",
-                aggfunc="sum",
-                fill_value=0
-            )
-
-            pivot["Total"] = pivot.sum(axis=1)
-            st.dataframe(pivot)
+            st.dataframe(temp)
 
     # =========================================
-    # 🟡 LOST AT RTS
+    # 🟡 LOST AT RTS VIEW
     # =========================================
     st.subheader("🟡 Lost at RTS")
 
@@ -283,17 +239,7 @@ if freeze_file and manifest_file and awb_file and mapping_file:
     for am in lost_df["AM"].dropna().unique():
         with st.expander(f"📁 {am}"):
             temp = lost_df[lost_df["AM"] == am]
-
-            pivot = temp.pivot_table(
-                index="Current Location",
-                columns="Month",
-                values="Debit Value",
-                aggfunc="sum",
-                fill_value=0
-            )
-
-            pivot["Total"] = pivot.sum(axis=1)
-            st.dataframe(pivot)
+            st.dataframe(temp)
 
     # =========================================
     # 📥 DOWNLOAD
